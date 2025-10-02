@@ -1,6 +1,7 @@
 import type { NetflixItem } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { getLocalPoster } from "@/lib/poster-map"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 
 interface RankCardProps {
@@ -9,7 +10,8 @@ interface RankCardProps {
 }
 
 export function RankCard({ item, showChange = true }: RankCardProps) {
-  console.log("[v0] RankCard poster URL:", item.poster, "for title:", item.title)
+  const computedPoster = item.poster || getLocalPoster(item.title)
+  console.log("[v0] RankCard poster URL:", computedPoster, "for title:", item.title)
 
   const formatNumber = (num?: number) => {
     if (!num) return "-"
@@ -40,23 +42,15 @@ export function RankCard({ item, showChange = true }: RankCardProps) {
 
         {/* Poster */}
         <div className="flex-shrink-0">
-          {item.poster ? (
-            <img
-              src={item.poster || "/placeholder.svg"}
-              alt={item.title}
-              className="w-16 h-24 object-cover rounded bg-muted"
-              onError={(e) => {
-                console.log("[v0] Image failed to load:", item.poster)
-                e.currentTarget.style.display = "none"
-                e.currentTarget.nextElementSibling?.classList.remove("hidden")
-              }}
-            />
-          ) : null}
-          <div
-            className={`w-16 h-24 rounded bg-muted flex items-center justify-center text-xs text-center p-1 ${item.poster ? "hidden" : ""}`}
-          >
-            <span className="line-clamp-3">{item.title}</span>
-          </div>
+          <img
+            src={computedPoster || "/placeholder.jpg"}
+            alt={item.title}
+            className="w-16 h-24 object-cover rounded bg-muted"
+            onError={(e) => {
+              console.log("[v0] Image failed to load:", computedPoster, "-> fallback placeholder")
+              e.currentTarget.src = "/placeholder.jpg"
+            }}
+          />
         </div>
 
         {/* Content */}

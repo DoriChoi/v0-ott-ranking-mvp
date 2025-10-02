@@ -4,6 +4,7 @@ import { CACHE_TIMES } from "@/lib/constants"
 // import { NETFLIX_URLS } from "@/lib/constants"
 // import { fetchAndParseExcel, parseMostPopular } from "@/lib/parse-excel"
 import { sampleWeeklyRows } from "@/lib/sample-data"
+import { enrichPopularRows } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.MOST_POPULAR // 7 days
 
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
     // const popularData = parseMostPopular(workbook)
 
     // 샘플 데이터를 91일 누적 데이터로 변환
-    const popularData = {
+    const popularDataRaw = {
       tvEnglish: sampleWeeklyRows
         .filter((row) => row.category === "TV" && row.languageType === "English")
         .slice(0, 10)
@@ -73,6 +74,13 @@ export async function GET(request: Request) {
               views91d: row.views * 13,
             }) as PopularRow,
         ),
+    }
+
+    const popularData = {
+      tvEnglish: await enrichPopularRows(popularDataRaw.tvEnglish, 20),
+      tvNonEnglish: await enrichPopularRows(popularDataRaw.tvNonEnglish, 20),
+      filmsEnglish: await enrichPopularRows(popularDataRaw.filmsEnglish, 20),
+      filmsNonEnglish: await enrichPopularRows(popularDataRaw.filmsNonEnglish, 20),
     }
 
     console.log("[v0] Parsed most popular data:", {

@@ -95,6 +95,13 @@ export interface WeeklyAPIResponse {
   unifiedTop100: NetflixItem[]
   weekStart: string
   weekEnd: string
+  // Optional, server-prepared NetflixItem arrays per quadrant (with posters/localized titles)
+  categoryItems?: {
+    tvEnglish: NetflixItem[]
+    tvNonEnglish: NetflixItem[]
+    filmsEnglish: NetflixItem[]
+    filmsNonEnglish: NetflixItem[]
+  }
 }
 
 export interface CountryAPIResponse {
@@ -109,4 +116,12 @@ export interface MostPopularAPIResponse {
   tvNonEnglish: PopularRow[]
   filmsEnglish: PopularRow[]
   filmsNonEnglish: PopularRow[]
+}
+
+// Optional enrichment fields for Most Popular rows (used by API to pass posters/localized titles)
+declare module "./types" {
+  interface PopularRow {
+    poster?: string
+    localizedTitle?: string
+  }
 }

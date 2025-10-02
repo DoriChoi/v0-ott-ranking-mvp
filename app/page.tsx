@@ -6,45 +6,59 @@ import type { ViewMode, WeeklyAPIResponse, CountryAPIResponse, MostPopularAPIRes
 import { ViewTabs } from "@/components/view-tabs"
 import { RankCard } from "@/components/rank-card"
 import { CountrySelector } from "@/components/country-selector"
+import { WeekSelector } from "@/components/week-selector"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { RankGridSkeleton, CategoryGridSkeleton } from "@/components/skeletons"
 import { ErrorState } from "@/components/error-state"
 import { convertToNetflixItems } from "@/lib/ranking"
+import { RankGridSkeleton, CategoryGridSkeleton } from "@/components/skeletons"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 export default function HomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("integrated")
   const [selectedCountry, setSelectedCountry] = useState("KR")
+  const [selectedWeek, setSelectedWeek] = useState<string | undefined>(undefined)
 
   const {
     data: weeklyData,
     error: weeklyError,
     mutate: mutateWeekly,
-  } = useSWR<WeeklyAPIResponse>("/api/netflix/weekly", fetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-  })
+  } = useSWR<WeeklyAPIResponse>(
+    selectedWeek ? `/api/netflix/weekly?week=${encodeURIComponent(selectedWeek)}` : "/api/netflix/weekly",
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  )
 
   const {
     data: countryData,
     error: countryError,
     mutate: mutateCountry,
-  } = useSWR<CountryAPIResponse>(viewMode === "country" ? `/api/netflix/country/${selectedCountry}` : null, fetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-  })
+  } = useSWR<CountryAPIResponse>(
+    viewMode === "country" ? `/api/netflix/country/${selectedCountry}` : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  )
 
   const {
     data: popularData,
     error: popularError,
     mutate: mutatePopular,
-  } = useSWR<MostPopularAPIResponse>(viewMode === "popular" ? "/api/netflix/most-popular" : null, fetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-  })
-
+  } = useSWR<MostPopularAPIResponse>(
+    viewMode === "popular" ? "/api/netflix/most-popular" : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  )
+ 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -76,7 +90,12 @@ export default function HomePage() {
                   {weeklyData?.weekStart && `${weeklyData.weekStart} ~ ${weeklyData.weekEnd}`}
                 </p>
               </div>
-              {weeklyData && <Badge variant="secondary">{weeklyData.unifiedTop100.length}개 콘텐츠</Badge>}
+              <div className="flex items-center gap-3">
+                <WeekSelector value={selectedWeek} onChange={setSelectedWeek} />
+                {weeklyData && (
+                  <Badge variant="secondary">{weeklyData.unifiedTop100.length}개 콘텐츠</Badge>
+                )}
+              </div>
             </div>
 
             {weeklyError && <ErrorState onRetry={() => mutateWeekly()} />}
@@ -84,7 +103,9 @@ export default function HomePage() {
             {weeklyData && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {weeklyData.unifiedTop100.map((item) => (
-                  <RankCard key={item.rank} item={item} />
+                  <RankCard key={(item as any).id ?? `${item.title}-${item.rank}`}
+                    item={item}
+                  />
                 ))}
               </div>
             )}
@@ -121,8 +142,21 @@ export default function HomePage() {
                       <CardTitle className="text-lg">{category.title}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      {convertToNetflixItems(category.data, 10).map((item) => (
-                        <RankCard key={item.rank} item={item} showChange={false} />
+                      {(weeklyData.categoryItems
+                        ? // server-enriched items
+                          (
+                            weeklyData.categoryItems[
+                              category.key as keyof typeof weeklyData.categoryItems
+                            ] || []
+                          )
+                        : // fallback to client conversion
+                          convertToNetflixItems(category.data, 10)
+                      ).map((item) => (
+                        <RankCard
+                          key={(item as any).id ?? `${item.title}-${item.rank}`}
+                          item={item}
+                          showChange={false}
+                        />
                       ))}
                     </CardContent>
                   </Card>
@@ -150,7 +184,9 @@ export default function HomePage() {
             {countryData && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {countryData.items.map((item) => (
-                  <RankCard key={item.rank} item={item} />
+                  <RankCard key={(item as any).id ?? `${item.title}-${item.rank}`}
+                    item={item}
+                  />
                 ))}
               </div>
             )}
@@ -181,17 +217,25 @@ export default function HomePage() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                       {category.data.slice(0, 10).map((row, index) => {
-                        const encodedTitle = encodeURIComponent(row.title.substring(0, 30))
+                        const displayTitle = (row as any).localizedTitle || row.title
+                        const poster = (row as any).poster
+                        const encodedTitle = encodeURIComponent(displayTitle.substring(0, 30))
                         const item = {
                           rank: index + 1,
-                          title: row.title,
+                          title: displayTitle,
                           category: row.category,
                           language: row.languageType,
                           cumulativeViews: row.views91d,
                           cumulativeHours: row.hours91d,
-                          poster: `https://placehold.co/200x300/1a1a1a/white/png?text=${encodedTitle}`,
+                          poster: poster || `https://placehold.co/200x300/1a1a1a/white/png?text=${encodedTitle}`,
                         }
-                        return <RankCard key={item.rank} item={item} showChange={false} />
+                        return (
+                          <RankCard
+                            key={(row as any).id ?? `${category.key}-${displayTitle}-${index}`}
+                            item={item}
+                            showChange={false}
+                          />
+                        )
                       })}
                     </CardContent>
                   </Card>

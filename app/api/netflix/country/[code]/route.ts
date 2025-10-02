@@ -5,6 +5,7 @@ import { CACHE_TIMES, SUPPORTED_COUNTRIES } from "@/lib/constants"
 // import { fetchAndParseExcel, parseCountryData } from "@/lib/parse-excel"
 import { convertToNetflixItems } from "@/lib/ranking"
 import { sampleWeeklyRows } from "@/lib/sample-data"
+import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
 
@@ -41,8 +42,8 @@ export async function GET(request: Request, { params }: { params: { code: string
 
     console.log(`[v0] Parsed country data for ${countryCode}:`, countryData.length)
 
-    // Convert to NetflixItem format (Top10)
-    const items = convertToNetflixItems(countryData, 10)
+    // Convert to NetflixItem format (Top10) and enrich
+    const items = await enrichNetflixItems(convertToNetflixItems(countryData, 10), 20)
 
     // Get latest week info from sample data
     const latestWeek = sampleWeeklyRows[0]
