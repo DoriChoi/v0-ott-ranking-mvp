@@ -37,7 +37,6 @@ export default function HomePage() {
   const [selectedWeek, setSelectedWeek] = useState<string | undefined>(undefined)
   // Country view uses fixed specific days; default to 2025-09-28
   const [selectedCountryDay, setSelectedCountryDay] = useState<string>("2025-09-28")
-
   const {
     data: weeklyData,
     error: weeklyError,
@@ -88,7 +87,7 @@ export default function HomePage() {
       revalidateOnReconnect: false,
     },
   )
- 
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -181,14 +180,12 @@ export default function HomePage() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                       {(weeklyData.categoryItems
-                        ? // server-enriched items
-                          (
+                        ? (
                             weeklyData.categoryItems[
                               category.key as keyof typeof weeklyData.categoryItems
                             ] || []
                           )
-                        : // fallback to client conversion
-                          convertToNetflixItems(category.data, 10)
+                        : convertToNetflixItems(category.data, 10)
                       ).map((item) => (
                         <RankCard
                           key={(item as any).id ?? `${item.title}-${item.rank}`}

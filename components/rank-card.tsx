@@ -1,7 +1,6 @@
 import type { NetflixItem } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { getLocalPoster } from "@/lib/poster-map"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 
 interface RankCardProps {
@@ -10,9 +9,6 @@ interface RankCardProps {
 }
 
 export function RankCard({ item, showChange = true }: RankCardProps) {
-  const computedPoster = item.poster || getLocalPoster(item.title)
-  console.log("[v0] RankCard poster URL:", computedPoster, "for title:", item.title)
-
   const formatNumber = (num?: number) => {
     if (!num) return "-"
     if (num >= 1000000) {
@@ -40,17 +36,14 @@ export function RankCard({ item, showChange = true }: RankCardProps) {
           </div>
         </div>
 
-        {/* Poster */}
         <div className="flex-shrink-0">
-          <img
-            src={computedPoster || "/placeholder.jpg"}
-            alt={item.title}
-            className="w-16 h-24 object-cover rounded bg-muted"
-            onError={(e) => {
-              console.log("[v0] Image failed to load:", computedPoster, "-> fallback placeholder")
-              e.currentTarget.src = "/placeholder.jpg"
-            }}
-          />
+          <div className="w-16 h-24 rounded overflow-hidden bg-muted relative">
+            <img
+              src={item.poster || "/placeholder.svg?height=300&width=200"}
+              alt={item.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
         </div>
 
         {/* Content */}

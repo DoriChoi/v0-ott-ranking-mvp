@@ -13,7 +13,6 @@ export const revalidate = CACHE_TIMES.MOST_POPULAR // 7 days
 export async function GET(request: Request) {
   try {
     console.log("[v0] Fetching Netflix most popular data...")
-
     // Load from JSON first (public/netflix_mostpopular.json); fallback to XLSX
     const jsonRows = tryLoadJsonRows(NETFLIX_URLS.MOST_POPULAR)
     let parsed
@@ -31,7 +30,6 @@ export async function GET(request: Request) {
       filmsEnglish: await enrichPopularRows(parsed.filmsEnglish, 40),
       filmsNonEnglish: await enrichPopularRows(parsed.filmsNonEnglish, 40),
     }
-
     console.log("[v0] Parsed most popular data:", {
       tvEnglish: popularData.tvEnglish.length,
       tvNonEnglish: popularData.tvNonEnglish.length,

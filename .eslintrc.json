@@ -1,9 +1,0 @@
-{
-  "root": true,
-  "extends": ["next/core-web-vitals"],
-  "plugins": ["react"],
-  "rules": {
-    "react/jsx-wrap-multilines": "error",
-    "react/jsx-closing-tag-location": "error"
-  }
-}

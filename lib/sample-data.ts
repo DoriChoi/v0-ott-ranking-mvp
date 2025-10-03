@@ -128,7 +128,7 @@ export const sampleWeeklyData: NetflixItem[] = sampleWeeklyRows.slice(0, 100).ma
   weeklyHours: row.hoursViewed,
   weeksInTop10: row.weeksInTop10,
   changeFromLastWeek: Math.floor(Math.random() * 10) - 5,
-  poster: `https://placehold.co/200x300/1a1a1a/white/png?text=${encodeURIComponent(row.title.substring(0, 30))}`,
+  poster: `/placeholder.svg?height=300&width=200&query=${encodeURIComponent(row.title)}`,
 }))
 
 export const sampleCategoryData: CategoryData = {

@@ -15,14 +15,13 @@ export async function GET(request: Request) {
   try {
     // 1) Load from JSON first (public/netflix_global.json); fallback to XLSX
     const jsonRows = tryLoadJsonRows(NETFLIX_URLS.WEEKLY_GLOBAL)
-    let parsed
+    let parsed: { tvEnglish: WeeklyRow[]; tvNonEnglish: WeeklyRow[]; filmsEnglish: WeeklyRow[]; filmsNonEnglish: WeeklyRow[] }
     if (jsonRows && jsonRows.length > 0) {
       parsed = parseWeeklyGlobalFromRows(jsonRows)
     } else {
       const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
       parsed = parseWeeklyGlobal(workbook)
     }
-
     // 2) Base data for menus: prefer 2025 if exists; else fallback to all
     const only2025 = {
       tvEnglish: parsed.tvEnglish.filter((r) => r.weekStart.startsWith("2025-")),
