@@ -41,8 +41,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const requestedWeek = searchParams.get("week")
 
-    const filePath = `${process.cwd()}/public/netflix_global.xlsx`
-    const workbook = XLSX.readFile(filePath)
+    const excelResponse = await fetch(new URL("/netflix_global.xlsx", request.url).href)
+    if (!excelResponse.ok) {
+      throw new Error("Failed to fetch Excel file")
+    }
+    const arrayBuffer = await excelResponse.arrayBuffer()
+    const workbook = XLSX.read(arrayBuffer, { type: "array" })
+
     const sheetName = workbook.SheetNames[0]
     const worksheet = workbook.Sheets[sheetName]
     const rawData = XLSX.utils.sheet_to_json(worksheet)
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
     }
 
     const weekInfo = filteredRows[0]
-    const response: WeeklyAPIResponse = {
+    const apiResponse: WeeklyAPIResponse = {
       globalByQuadrant,
       unifiedTop100,
       weekStart: weekInfo.weekStart,
@@ -89,7 +94,7 @@ export async function GET(request: NextRequest) {
       categoryItems,
     }
 
-    return NextResponse.json(response)
+    return NextResponse.json(apiResponse)
   } catch (error) {
     console.error("[v0] Error in weekly API:", error)
     return NextResponse.json({ error: "Failed to load weekly data" }, { status: 500 })

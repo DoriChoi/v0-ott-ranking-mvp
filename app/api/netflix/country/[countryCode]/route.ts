@@ -48,8 +48,13 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const requestedWeek = searchParams.get("week")
 
-    const filePath = `${process.cwd()}/public/netflix_country.xlsx`
-    const workbook = XLSX.readFile(filePath)
+    const excelResponse = await fetch(new URL("/netflix_country.xlsx", request.url).href)
+    if (!excelResponse.ok) {
+      throw new Error("Failed to fetch Excel file")
+    }
+    const arrayBuffer = await excelResponse.arrayBuffer()
+    const workbook = XLSX.read(arrayBuffer, { type: "array" })
+
     const sheetName = workbook.SheetNames[0]
     const worksheet = workbook.Sheets[sheetName]
     const rawData = XLSX.utils.sheet_to_json(worksheet)
@@ -77,14 +82,14 @@ export async function GET(
     const items = convertToNetflixItemsFromCountry(filteredRows, 10)
     const weekInfo = filteredRows[0]
 
-    const response: CountryAPIResponse = {
+    const apiResponse: CountryAPIResponse = {
       countryCode,
       items,
       weekStart: weekInfo.weekStart,
       weekEnd: weekInfo.weekEnd,
     }
 
-    return NextResponse.json(response)
+    return NextResponse.json(apiResponse)
   } catch (error) {
     console.error("[v0] Error in country API:", error)
     return NextResponse.json({ error: "Failed to load country data" }, { status: 500 })

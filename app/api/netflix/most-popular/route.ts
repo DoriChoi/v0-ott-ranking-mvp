@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import * as XLSX from "xlsx"
 import type { PopularRow, MostPopularAPIResponse } from "@/lib/types"
 
@@ -26,10 +26,15 @@ function parsePopularRow(row: any): PopularRow | null {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const filePath = `${process.cwd()}/public/netflix_mostpopular.xlsx`
-    const workbook = XLSX.readFile(filePath)
+    const response = await fetch(new URL("/netflix_mostpopular.xlsx", request.url).href)
+    if (!response.ok) {
+      throw new Error("Failed to fetch Excel file")
+    }
+    const arrayBuffer = await response.arrayBuffer()
+    const workbook = XLSX.read(arrayBuffer, { type: "array" })
+
     const sheetName = workbook.SheetNames[0]
     const worksheet = workbook.Sheets[sheetName]
     const rawData = XLSX.utils.sheet_to_json(worksheet)
@@ -45,14 +50,14 @@ export async function GET() {
     const filmsEnglish = parsedRows.filter((r) => r.category === "Films" && r.languageType === "English")
     const filmsNonEnglish = parsedRows.filter((r) => r.category === "Films" && r.languageType === "Non-English")
 
-    const response: MostPopularAPIResponse = {
+    const apiResponse: MostPopularAPIResponse = {
       tvEnglish,
       tvNonEnglish,
       filmsEnglish,
       filmsNonEnglish,
     }
 
-    return NextResponse.json(response)
+    return NextResponse.json(apiResponse)
   } catch (error) {
     console.error("[v0] Error in most-popular API:", error)
     return NextResponse.json({ error: "Failed to load most popular data" }, { status: 500 })
