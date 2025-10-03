@@ -59,4 +59,3 @@ export function WeekSelector({ value, onChange, count = 4 }: { value?: string; o
     </Select>
   )
 }
-
