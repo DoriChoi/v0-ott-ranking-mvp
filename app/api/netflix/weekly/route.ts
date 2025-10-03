@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
-import type { WeeklyAPIResponse } from "@/lib/types"
-import { CACHE_TIMES } from "@/lib/constants"
-// import { NETFLIX_URLS } from "@/lib/constants"
-// import { fetchAndParseExcel, parseWeeklyGlobal } from "@/lib/parse-excel"
+import type { WeeklyAPIResponse, WeeklyRow } from "@/lib/types"
+import { CACHE_TIMES, NETFLIX_URLS } from "@/lib/constants"
+import { fetchAndParseExcel, parseWeeklyGlobal } from "@/lib/parse-excel"
 import { calculateUnifiedTop100, convertToNetflixItems } from "@/lib/ranking"
-import { sampleWeeklyRows } from "@/lib/sample-data"
 import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
+export const dynamic = "force-dynamic"
 
 /**
  * GET /api/netflix/weekly
@@ -15,34 +14,28 @@ export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
  */
 export async function GET(request: Request) {
   try {
-    // TODO: 프로덕션에서는 아래 주석 해제하여 실제 엑셀 파싱 사용
-    // const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
-    // const globalByQuadrant = parseWeeklyGlobal(workbook)
+    // 1) Fetch and parse Netflix weekly global Excel (from public)
+    const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
+    const parsed = parseWeeklyGlobal(workbook)
 
-    // 샘플 데이터를 카테고리별로 분류
-    const globalByQuadrant = {
-      tvEnglish: sampleWeeklyRows.filter((row) => row.category === "TV" && row.languageType === "English"),
-      tvNonEnglish: sampleWeeklyRows.filter((row) => row.category === "TV" && row.languageType === "Non-English"),
-      filmsEnglish: sampleWeeklyRows.filter((row) => row.category === "Films" && row.languageType === "English"),
-      filmsNonEnglish: sampleWeeklyRows.filter((row) => row.category === "Films" && row.languageType === "Non-English"),
+    // 2) Base data for menus: prefer 2025 if exists; else fallback to all
+    const only2025 = {
+      tvEnglish: parsed.tvEnglish.filter((r) => r.weekStart.startsWith("2025-")),
+      tvNonEnglish: parsed.tvNonEnglish.filter((r) => r.weekStart.startsWith("2025-")),
+      filmsEnglish: parsed.filmsEnglish.filter((r) => r.weekStart.startsWith("2025-")),
+      filmsNonEnglish: parsed.filmsNonEnglish.filter((r) => r.weekStart.startsWith("2025-")),
+    }
+    const any2025 =
+      only2025.tvEnglish.length +
+      only2025.tvNonEnglish.length +
+      only2025.filmsEnglish.length +
+      only2025.filmsNonEnglish.length > 0
+    const baseForMenus = any2025 ? only2025 : parsed
+    if (!any2025) {
+      console.warn("[v0] No 2025 weekly data; falling back to latest available year for menus.")
     }
 
-    // Calculate unified Top100
-    const unifiedTop100Raw = calculateUnifiedTop100(globalByQuadrant)
-    const unifiedTop100 = await enrichNetflixItems(unifiedTop100Raw, 60)
-
-    // Prepare category items (server-side) so client can directly render enriched data
-    const categoryItems = {
-      tvEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvEnglish, 10), 20),
-      tvNonEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvNonEnglish, 10), 20),
-      filmsEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.filmsEnglish, 10), 20),
-      filmsNonEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.filmsNonEnglish, 10), 20),
-    }
-
-    // Get latest week info from sample data
-    const latestWeek = sampleWeeklyRows[0]
-
-    // Optional week param
+    // Parse optional week param and define helpers
     const url = new URL(request.url)
     const weekParam = url.searchParams.get("week") || undefined
     function formatDate(d: Date) {
@@ -53,14 +46,104 @@ export async function GET(request: Request) {
       nd.setDate(nd.getDate() + days)
       return nd
     }
-    let weekStart = latestWeek?.weekStart || "2025-01-27"
-    let weekEnd = latestWeek?.weekEnd || "2025-02-02"
-    if (weekParam) {
-      const start = new Date(weekParam)
-      if (!isNaN(start.getTime())) {
-        weekStart = formatDate(start)
-        weekEnd = formatDate(addDays(start, 6))
-      }
+    // Compute latest Monday (UTC) to match WeekSelector default options
+    function getMondayUTC(d: Date) {
+      const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+      const day = nd.getUTCDay()
+      const diff = (day === 0 ? -6 : 1) - day // move to Monday
+      nd.setUTCDate(nd.getUTCDate() + diff)
+      return nd
+    }
+    const today = new Date()
+    const latestMonday = getMondayUTC(today)
+    // 3) Determine effective week within available 2025 weeks
+    const collectWeeks = (rows: WeeklyRow[]) => Array.from(new Set(rows.map((r) => r.weekStart)))
+    const weeksSet = new Set<string>([
+      ...collectWeeks(baseForMenus.tvEnglish),
+      ...collectWeeks(baseForMenus.tvNonEnglish),
+      ...collectWeeks(baseForMenus.filmsEnglish),
+      ...collectWeeks(baseForMenus.filmsNonEnglish),
+    ])
+    const availableWeeks = Array.from(weeksSet).sort() // ascending
+    if (availableWeeks.length === 0) {
+      console.warn("[v0] No weekly data available from Excel (all years).")
+      return NextResponse.json({
+        globalByQuadrant: { tvEnglish: [], tvNonEnglish: [], filmsEnglish: [], filmsNonEnglish: [] },
+        unifiedTop100: [],
+        weekStart: "",
+        weekEnd: "",
+        categoryItems: { tvEnglish: [], tvNonEnglish: [], filmsEnglish: [], filmsNonEnglish: [] },
+      } satisfies WeeklyAPIResponse)
+    }
+
+    function pickLatestAvailableWeek(): string | undefined {
+      return availableWeeks[availableWeeks.length - 1]
+    }
+
+    let weekStart = formatDate(latestMonday)
+    // Prefer requested week if it exists in 2025 data
+    if (weekParam && weeksSet.has(weekParam)) {
+      weekStart = weekParam
+    } else {
+      // Fallback to latest available 2025 week if current Monday isn't available
+      const latest = pickLatestAvailableWeek()
+      if (latest) weekStart = latest
+    }
+    let weekEnd = formatDate(addDays(new Date(weekStart), 6))
+
+    // 4) Slice data to the selected week
+    const globalByQuadrant = {
+      tvEnglish: baseForMenus.tvEnglish.filter((r) => r.weekStart === weekStart),
+      tvNonEnglish: baseForMenus.tvNonEnglish.filter((r) => r.weekStart === weekStart),
+      filmsEnglish: baseForMenus.filmsEnglish.filter((r) => r.weekStart === weekStart),
+      filmsNonEnglish: baseForMenus.filmsNonEnglish.filter((r) => r.weekStart === weekStart),
+    }
+
+    // Ensure selected week has any data
+    const totalCount =
+      globalByQuadrant.tvEnglish.length +
+      globalByQuadrant.tvNonEnglish.length +
+      globalByQuadrant.filmsEnglish.length +
+      globalByQuadrant.filmsNonEnglish.length
+    if (totalCount === 0) {
+      console.warn("[v0] Selected week has no rows:", weekStart)
+      return NextResponse.json({
+        globalByQuadrant,
+        unifiedTop100: [],
+        weekStart,
+        weekEnd,
+        categoryItems: { tvEnglish: [], tvNonEnglish: [], filmsEnglish: [], filmsNonEnglish: [] },
+      } satisfies WeeklyAPIResponse)
+    }
+
+    // 5) Build responses
+    // Unified Top100 from last ~30 days (1 month) using the full parsed dataset (not single week)
+    const allRows: WeeklyRow[] = [
+      ...parsed.tvEnglish,
+      ...parsed.tvNonEnglish,
+      ...parsed.filmsEnglish,
+      ...parsed.filmsNonEnglish,
+    ]
+    let latestOverall = ""
+    for (const r of allRows) {
+      if (r.weekStart > latestOverall) latestOverall = r.weekStart
+    }
+    const latestDate = latestOverall ? new Date(latestOverall + "T00:00:00Z") : null
+    const cutoff = latestDate ? new Date(latestDate) : null
+    if (cutoff) cutoff.setUTCDate(cutoff.getUTCDate() - 30)
+    const last90ByQuadrant = {
+      tvEnglish: parsed.tvEnglish.filter((r) => (cutoff ? r.weekStart >= cutoff.toISOString().slice(0, 10) : true)),
+      tvNonEnglish: parsed.tvNonEnglish.filter((r) => (cutoff ? r.weekStart >= cutoff.toISOString().slice(0, 10) : true)),
+      filmsEnglish: parsed.filmsEnglish.filter((r) => (cutoff ? r.weekStart >= cutoff.toISOString().slice(0, 10) : true)),
+      filmsNonEnglish: parsed.filmsNonEnglish.filter((r) => (cutoff ? r.weekStart >= cutoff.toISOString().slice(0, 10) : true)),
+    }
+    const unifiedTop100Raw = calculateUnifiedTop100(last90ByQuadrant)
+    const unifiedTop100 = await enrichNetflixItems(unifiedTop100Raw, 60)
+    const categoryItems = {
+      tvEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvEnglish, 10), 20),
+      tvNonEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvNonEnglish, 10), 20),
+      filmsEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.filmsEnglish, 10), 20),
+      filmsNonEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.filmsNonEnglish, 10), 20),
     }
 
     const response: WeeklyAPIResponse = {

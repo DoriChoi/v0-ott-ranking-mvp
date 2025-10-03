@@ -13,7 +13,21 @@ import { ErrorState } from "@/components/error-state"
 import { convertToNetflixItems } from "@/lib/ranking"
 import { RankGridSkeleton, CategoryGridSkeleton } from "@/components/skeletons"
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  let data: any = null
+  try {
+    data = await res.json()
+  } catch {
+    data = null
+  }
+  if (!res.ok) {
+    const err = new Error((data && (data.message || data.error)) || `Request failed: ${res.status}`)
+    ;(err as any).status = res.status
+    throw err
+  }
+  return data
+}
 
 export default function HomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("integrated")
@@ -38,7 +52,9 @@ export default function HomePage() {
     error: countryError,
     mutate: mutateCountry,
   } = useSWR<CountryAPIResponse>(
-    viewMode === "country" ? `/api/netflix/country/${selectedCountry}` : null,
+    viewMode === "country"
+      ? `/api/netflix/country/${selectedCountry}${selectedWeek ? `?week=${encodeURIComponent(selectedWeek)}` : ""}`
+      : null,
     fetcher,
     {
       revalidateOnFocus: false,
@@ -92,7 +108,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center gap-3">
                 <WeekSelector value={selectedWeek} onChange={setSelectedWeek} />
-                {weeklyData && (
+                {weeklyData?.unifiedTop100 && Array.isArray(weeklyData.unifiedTop100) && (
                   <Badge variant="secondary">{weeklyData.unifiedTop100.length}개 콘텐츠</Badge>
                 )}
               </div>
@@ -100,7 +116,7 @@ export default function HomePage() {
 
             {weeklyError && <ErrorState onRetry={() => mutateWeekly()} />}
             {!weeklyData && !weeklyError && <RankGridSkeleton count={12} />}
-            {weeklyData && (
+            {weeklyData?.unifiedTop100 && weeklyData.unifiedTop100.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {weeklyData.unifiedTop100.map((item) => (
                   <RankCard key={(item as any).id ?? `${item.title}-${item.rank}`}
@@ -109,18 +125,26 @@ export default function HomePage() {
                 ))}
               </div>
             )}
+            {weeklyData && (!weeklyData.unifiedTop100 || weeklyData.unifiedTop100.length === 0) && (
+              <div className="text-sm text-muted-foreground">해당 주간에 표시할 통합 Top100 데이터가 없습니다.</div>
+            )}
           </div>
         )}
 
         {/* Category View */}
         {viewMode === "category" && (
           <div>
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold mb-1">카테고리별 주간 Top10</h2>
-              <p className="text-sm text-muted-foreground">
-                영화/TV × 영어/비영어 4개 카테고리
-                {weeklyData?.weekStart && ` • ${weeklyData.weekStart} ~ ${weeklyData.weekEnd}`}
-              </p>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold mb-1">카테고리별 주간 Top10</h2>
+                <p className="text-sm text-muted-foreground">
+                  영화/TV × 영어/비영어 4개 카테고리
+                  {weeklyData?.weekStart && ` • ${weeklyData.weekStart} ~ ${weeklyData.weekEnd}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <WeekSelector value={selectedWeek} onChange={setSelectedWeek} />
+              </div>
             </div>
 
             {weeklyError && <ErrorState onRetry={() => mutateWeekly()} />}
@@ -176,12 +200,15 @@ export default function HomePage() {
                   {countryData?.weekStart && `${countryData.weekStart} ~ ${countryData.weekEnd}`}
                 </p>
               </div>
-              <CountrySelector value={selectedCountry} onChange={setSelectedCountry} />
+              <div className="flex items-center gap-3">
+                <WeekSelector value={selectedWeek} onChange={setSelectedWeek} />
+                <CountrySelector value={selectedCountry} onChange={setSelectedCountry} />
+              </div>
             </div>
 
             {countryError && <ErrorState onRetry={() => mutateCountry()} />}
             {!countryData && !countryError && <RankGridSkeleton count={10} />}
-            {countryData && (
+            {countryData?.items && countryData.items.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {countryData.items.map((item) => (
                   <RankCard key={(item as any).id ?? `${item.title}-${item.rank}`}
@@ -189,6 +216,9 @@ export default function HomePage() {
                   />
                 ))}
               </div>
+            )}
+            {countryData && (!countryData.items || countryData.items.length === 0) && (
+              <div className="text-sm text-muted-foreground">해당 주간에 표시할 국가별 데이터가 없습니다.</div>
             )}
           </div>
         )}
@@ -198,7 +228,7 @@ export default function HomePage() {
           <div>
             <div className="mb-4">
               <h2 className="text-xl font-semibold mb-1">역대 Most Popular</h2>
-              <p className="text-sm text-muted-foreground">91일 누적 Views 기준 Top10</p>
+              <p className="text-sm text-muted-foreground">파일 제공 값 기준 Top10</p>
             </div>
 
             {popularError && <ErrorState onRetry={() => mutatePopular()} />}

@@ -21,14 +21,13 @@ function getMonday(d: Date) {
   return nd
 }
 
-export function WeekSelector({ value, onChange, count = 12 }: { value?: string; onChange: (v: string) => void; count?: number }) {
+export function WeekSelector({ value, onChange, count = 4 }: { value?: string; onChange: (v: string) => void; count?: number }) {
   const options = useMemo(() => {
-    // Generate last `count` weeks, using Monday as week start
-    const today = new Date()
-    const startMonday = getMonday(today)
+    // Generate last N Mondays up to today (UTC)
+    const latestMonday = getMonday(new Date())
     const arr: { value: string; label: string }[] = []
-    for (let i = 0; i < count; i++) {
-      const start = addDays(startMonday, -7 * i)
+    for (let i = 0; i < Math.max(1, count); i++) {
+      const start = addDays(latestMonday, -7 * i)
       const end = addDays(start, 6)
       const startStr = formatDate(start)
       const endStr = formatDate(end)
@@ -52,3 +51,4 @@ export function WeekSelector({ value, onChange, count = 12 }: { value?: string; 
     </Select>
   )
 }
+

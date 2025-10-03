@@ -18,6 +18,13 @@ function normalizeQuery(title: string): string {
   t = t.replace(/\bPart\s*\d+\b/gi, " ") // Part 2
   t = t.replace(/파트\s*\d+/g, " ") // 파트 2
   t = t.replace(/시즌\s*\d+/g, " ") // 시즌 2
+  // common sequel markers
+  t = t.replace(/:\s*(Chapter|Episode|Ep|Part)\s*\d+/gi, " ")
+  t = t.replace(/-\s*(Chapter|Episode|Ep|Part)\s*\d+/gi, " ")
+  // roman numerals like II, III
+  t = t.replace(/\b(II|III|IV|V|VI|VII|VIII|IX|X)\b/gi, " ")
+  // trailing numerals like " 2" or " 3"
+  t = t.replace(/\s+\d+$/g, " ")
   t = t.replace(/\([^\)]*\)/g, " ") // 괄호 내용 제거
   t = t.replace(/[\[\]『』〈〉]/g, " ")
   t = t.replace(/\s{2,}/g, " ").trim()

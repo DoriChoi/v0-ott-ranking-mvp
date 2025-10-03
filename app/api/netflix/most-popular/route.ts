@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server"
-import type { MostPopularAPIResponse, PopularRow } from "@/lib/types"
-import { CACHE_TIMES } from "@/lib/constants"
-// import { NETFLIX_URLS } from "@/lib/constants"
-// import { fetchAndParseExcel, parseMostPopular } from "@/lib/parse-excel"
-import { sampleWeeklyRows } from "@/lib/sample-data"
+import type { MostPopularAPIResponse } from "@/lib/types"
+import { CACHE_TIMES, NETFLIX_URLS } from "@/lib/constants"
+import { fetchAndParseExcel, parseMostPopular } from "@/lib/parse-excel"
 import { enrichPopularRows } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.MOST_POPULAR // 7 days
@@ -16,71 +14,16 @@ export async function GET(request: Request) {
   try {
     console.log("[v0] Fetching Netflix most popular data...")
 
-    // TODO: 프로덕션에서는 아래 주석 해제하여 실제 엑셀 파싱 사용
-    // const workbook = await fetchAndParseExcel(NETFLIX_URLS.MOST_POPULAR)
-    // const popularData = parseMostPopular(workbook)
+    // Fetch and parse real Excel
+    const workbook = await fetchAndParseExcel(NETFLIX_URLS.MOST_POPULAR)
+    const parsed = parseMostPopular(workbook)
 
-    // 샘플 데이터를 91일 누적 데이터로 변환
-    const popularDataRaw = {
-      tvEnglish: sampleWeeklyRows
-        .filter((row) => row.category === "TV" && row.languageType === "English")
-        .slice(0, 10)
-        .map(
-          (row) =>
-            ({
-              title: row.title,
-              category: row.category,
-              languageType: row.languageType,
-              hours91d: row.hoursViewed * 13, // 13주 시뮬레이션
-              views91d: row.views * 13,
-            }) as PopularRow,
-        ),
-      tvNonEnglish: sampleWeeklyRows
-        .filter((row) => row.category === "TV" && row.languageType === "Non-English")
-        .slice(0, 10)
-        .map(
-          (row) =>
-            ({
-              title: row.title,
-              category: row.category,
-              languageType: row.languageType,
-              hours91d: row.hoursViewed * 13,
-              views91d: row.views * 13,
-            }) as PopularRow,
-        ),
-      filmsEnglish: sampleWeeklyRows
-        .filter((row) => row.category === "Films" && row.languageType === "English")
-        .slice(0, 10)
-        .map(
-          (row) =>
-            ({
-              title: row.title,
-              category: row.category,
-              languageType: row.languageType,
-              hours91d: row.hoursViewed * 13,
-              views91d: row.views * 13,
-            }) as PopularRow,
-        ),
-      filmsNonEnglish: sampleWeeklyRows
-        .filter((row) => row.category === "Films" && row.languageType === "Non-English")
-        .slice(0, 10)
-        .map(
-          (row) =>
-            ({
-              title: row.title,
-              category: row.category,
-              languageType: row.languageType,
-              hours91d: row.hoursViewed * 13,
-              views91d: row.views * 13,
-            }) as PopularRow,
-        ),
-    }
-
+    // Enrich posters/localized titles
     const popularData = {
-      tvEnglish: await enrichPopularRows(popularDataRaw.tvEnglish, 20),
-      tvNonEnglish: await enrichPopularRows(popularDataRaw.tvNonEnglish, 20),
-      filmsEnglish: await enrichPopularRows(popularDataRaw.filmsEnglish, 20),
-      filmsNonEnglish: await enrichPopularRows(popularDataRaw.filmsNonEnglish, 20),
+      tvEnglish: await enrichPopularRows(parsed.tvEnglish, 40),
+      tvNonEnglish: await enrichPopularRows(parsed.tvNonEnglish, 40),
+      filmsEnglish: await enrichPopularRows(parsed.filmsEnglish, 40),
+      filmsNonEnglish: await enrichPopularRows(parsed.filmsNonEnglish, 40),
     }
 
     console.log("[v0] Parsed most popular data:", {

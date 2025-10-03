@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
-import type { CountryAPIResponse } from "@/lib/types"
-import { CACHE_TIMES, SUPPORTED_COUNTRIES } from "@/lib/constants"
-// import { NETFLIX_URLS } from "@/lib/constants"
-// import { fetchAndParseExcel, parseCountryData } from "@/lib/parse-excel"
+import type { CountryAPIResponse, WeeklyRow } from "@/lib/types"
+import { CACHE_TIMES, SUPPORTED_COUNTRIES, NETFLIX_URLS } from "@/lib/constants"
+import { fetchAndParseExcel, parseCountryData } from "@/lib/parse-excel"
 import { convertToNetflixItems } from "@/lib/ranking"
-import { sampleWeeklyRows } from "@/lib/sample-data"
 import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
+export const dynamic = "force-dynamic"
 
 /**
  * GET /api/netflix/country/[code]
@@ -30,29 +29,39 @@ export async function GET(request: Request, { params }: { params: { code: string
       )
     }
 
-    // TODO: 프로덕션에서는 아래 주석 해제하여 실제 엑셀 파싱 사용
-    // const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
-    // const countryData = parseCountryData(workbook, countryCode)
+    // Fetch and parse country workbook from public
+    const workbook = await fetchAndParseExcel(NETFLIX_URLS.COUNTRY)
+    const allCountryRows = parseCountryData(workbook, countryCode)
 
-    // 샘플 데이터에서 국가별 데이터 시뮬레이션 (상위 20개 항목 사용)
-    const countryData = sampleWeeklyRows.slice(0, 20).map((row) => ({
-      ...row,
-      countryCode,
-    }))
+    // Filter to 2025 only
+    const only2025 = allCountryRows.filter((r) => r.weekStart.startsWith("2025-"))
 
-    console.log(`[v0] Parsed country data for ${countryCode}:`, countryData.length)
+    // Determine requested week
+    const url = new URL(request.url)
+    const weekParam = url.searchParams.get("week") || undefined
+    const weeksSet = new Set<string>(only2025.map((r) => r.weekStart))
+    const availableWeeks = Array.from(weeksSet).sort()
+    const latestWeekStart = availableWeeks[availableWeeks.length - 1]
+    const weekStart = weekParam && weeksSet.has(weekParam) ? weekParam : latestWeekStart
+    const weekEnd = (() => {
+      if (!weekStart) return ""
+      const d = new Date(weekStart)
+      const e = new Date(d)
+      e.setDate(e.getDate() + 6)
+      return e.toISOString().slice(0, 10)
+    })()
 
-    // Convert to NetflixItem format (Top10) and enrich
-    const items = await enrichNetflixItems(convertToNetflixItems(countryData, 10), 20)
-
-    // Get latest week info from sample data
-    const latestWeek = sampleWeeklyRows[0]
+    // Slice to selected week and enrich Top10
+    const rowsForWeek: WeeklyRow[] = weekStart
+      ? only2025.filter((r) => r.weekStart === weekStart)
+      : []
+    const items = await enrichNetflixItems(convertToNetflixItems(rowsForWeek, 10), 20)
 
     const response: CountryAPIResponse = {
       countryCode,
       items,
-      weekStart: latestWeek?.weekStart || "2025-01-27",
-      weekEnd: latestWeek?.weekEnd || "2025-02-02",
+      weekStart: weekStart || "",
+      weekEnd: weekEnd || "",
     }
 
     return NextResponse.json(response)

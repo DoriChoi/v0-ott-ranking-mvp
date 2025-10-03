@@ -32,6 +32,17 @@ export function getLocalPoster(title: string): string | undefined {
     [/all\s*of\s*us\s*are\s*dead/i, "/generic-survival-game-poster.png"],
     [/dead\s*and\s*buried/i, "/korean-movie-poster.jpg"],
     [/신상\s*프로젝트/, "/project-movie-poster.jpg"],
+    // User reported: missing posters
+    [/sympathy\s*for\s*mr\.?\s*vengeance(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/복수는\s*나의\s*것(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/killing\s*romance(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/킬링\s*로맨스(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/escape\s*from\s*mogadishu(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/모가디슈(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/the\s*trunk/i, "/korean-movie-poster.jpg"],
+    [/트렁크/i, "/korean-movie-poster.jpg"],
+    [/ransomed(\s*2)?/i, "/korean-movie-poster.jpg"],
+    [/비공식\s*작전(\s*2)?/i, "/korean-movie-poster.jpg"],
   ]
 
   for (const [re, path] of rules) {

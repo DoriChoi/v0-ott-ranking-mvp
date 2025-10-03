@@ -1,8 +1,10 @@
 // Netflix data parsing and ranking constants
 
 export const NETFLIX_URLS = {
-  WEEKLY_GLOBAL: "https://www.netflix.com/tudum/top10/data/all-weeks-global.xlsx",
-  MOST_POPULAR: "https://www.netflix.com/tudum/top10/data/most-popular.xlsx",
+  // Use same-origin public files
+  WEEKLY_GLOBAL: "/netflix_global.xlsx",
+  COUNTRY: "/netflix_country.xlsx",
+  MOST_POPULAR: "/netflix_mostpopular.xlsx",
 } as const
 
 // Sheet name patterns for parsing
