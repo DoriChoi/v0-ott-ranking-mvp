@@ -25,3 +25,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Excel temporary/lock files (should never be committed)
+~$*.xlsx
+public/~$*.xlsx
+
+# Optional: raw data dumps (uncomment if needed)
+# data/raw/**

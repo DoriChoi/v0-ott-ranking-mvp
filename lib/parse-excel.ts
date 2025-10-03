@@ -2,7 +2,7 @@ import * as XLSX from "xlsx"
 import { z } from "zod"
 import type { WeeklyRow, PopularRow, Category, LanguageType, WeeklyRowRaw, PopularRowRaw } from "./types"
 import { SHEET_PATTERNS, COLUMN_MAPPINGS } from "./constants"
-import { readFileSync } from "fs"
+import { readFileSync, existsSync, statSync } from "fs"
 import { join } from "path"
 
 // Zod schemas for validation
@@ -12,9 +12,9 @@ const weeklyRowSchema = z.object({
   title: z.string().min(1),
   category: z.enum(["TV", "Films"]),
   languageType: z.enum(["English", "Non-English"]),
-  hoursViewed: z.number().positive(),
-  views: z.number().positive(),
-  weeksInTop10: z.number().int().positive(),
+  hoursViewed: z.number().nonnegative(),
+  views: z.number().nonnegative(),
+  weeksInTop10: z.number().int().nonnegative(),
   countryCode: z.string().optional(),
 })
 
@@ -36,7 +36,6 @@ export async function fetchAndParseExcel(url: string): Promise<XLSX.WorkBook> {
     const buf = readFileSync(filePath)
     return XLSX.read(buf, { type: "buffer" as any })
   }
-
   const response = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 (compatible; LiveRankMini/1.0)",
@@ -50,6 +49,144 @@ export async function fetchAndParseExcel(url: string): Promise<XLSX.WorkBook> {
   const arrayBuffer = await response.arrayBuffer()
   const workbook = XLSX.read(arrayBuffer, { type: "array" })
   return workbook
+}
+
+// ----- JSON-first helpers -----
+function tryLoadPublicJsonRowsInternal(url: string): any[] | null {
+  if (!url.startsWith("/")) return null
+  const jsonPath = url.replace(/\.(xlsx|xls)$/i, ".json")
+  const filePath = join(process.cwd(), "public", jsonPath.slice(1))
+  if (existsSync(filePath)) {
+    try {
+      // in-memory cache by mtime
+      const key = filePath
+      const mtime = statSync(filePath).mtimeMs
+      ;(global as any).__v0_json_cache = (global as any).__v0_json_cache || new Map<string, { mtime: number; rows: any[] }>()
+      const cache: Map<string, { mtime: number; rows: any[] }> = (global as any).__v0_json_cache
+      const hit = cache.get(key)
+      if (hit && hit.mtime === mtime) {
+        return hit.rows
+      }
+
+      const txt = readFileSync(filePath, "utf-8")
+      const data = JSON.parse(txt)
+      const rows = Array.isArray(data) ? data : Array.isArray((data as any).rows) ? (data as any).rows : []
+      cache.set(key, { mtime, rows })
+      return rows
+    } catch (e) {
+      console.warn("[v0] Failed to parse JSON:", filePath, e)
+      return []
+    }
+  }
+  return null
+}
+
+export function tryLoadJsonRows(url: string): any[] | null {
+  return tryLoadPublicJsonRowsInternal(url)
+}
+
+export function parseWeeklyGlobalFromRows(rows: any[]): {
+  tvEnglish: WeeklyRow[]
+  tvNonEnglish: WeeklyRow[]
+  filmsEnglish: WeeklyRow[]
+  filmsNonEnglish: WeeklyRow[]
+} {
+  const result = { tvEnglish: [] as WeeklyRow[], tvNonEnglish: [] as WeeklyRow[], filmsEnglish: [] as WeeklyRow[], filmsNonEnglish: [] as WeeklyRow[] }
+  for (const raw of rows) {
+    try {
+      const weekStr = findColumnValue(raw, COLUMN_MAPPINGS.WEEK)
+      const title = pickTitleWithFallback(raw)
+      const hoursViewed = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_HOURS))
+      const views = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_VIEWS))
+      const weeksInTop10 = Number(findColumnValue(raw, COLUMN_MAPPINGS.CUMULATIVE_WEEKS))
+      const catStr = String(findColumnValue(raw, COLUMN_MAPPINGS.CATEGORY) || "")
+      if (!weekStr || !title || isNaN(hoursViewed) || isNaN(views) || isNaN(weeksInTop10) || !catStr) continue
+      const { weekStart, weekEnd } = parseWeekToDateRange(weekStr)
+      if (!weekStart || !weekEnd) continue
+      const lower = catStr.toLowerCase()
+      const category: Category = lower.includes("tv") ? "TV" : "Films"
+      const languageType: LanguageType = lower.includes("non") ? "Non-English" : "English"
+      const row: WeeklyRow = { weekStart, weekEnd, title: String(title), category, languageType, hoursViewed, views, weeksInTop10 }
+      if (row.category === "TV" && row.languageType === "English") result.tvEnglish.push(row)
+      else if (row.category === "TV" && row.languageType === "Non-English") result.tvNonEnglish.push(row)
+      else if (row.category === "Films" && row.languageType === "English") result.filmsEnglish.push(row)
+      else result.filmsNonEnglish.push(row)
+    } catch {}
+  }
+  return result
+}
+
+export function parseCountryFromRows(rows: any[], countryCode: string): WeeklyRow[] {
+  const out: WeeklyRow[] = []
+  const filtered = rows.filter((r) => {
+    const keys = ["country", "country_code", "country_iso", "country_iso2"]
+    for (const k of Object.keys(r)) {
+      const norm = k.toLowerCase().replace(/\s+/g, "_")
+      if (keys.includes(norm)) {
+        const v = String(r[k]).toUpperCase()
+        if (v === countryCode.toUpperCase()) return true
+      }
+    }
+    return false
+  })
+  for (const raw of filtered) {
+    try {
+      const weekStr = findColumnValue(raw, COLUMN_MAPPINGS.WEEK)
+      const title = pickTitleWithFallback(raw)
+      const categoryStr = findColumnValue(raw, COLUMN_MAPPINGS.CATEGORY)
+      const hoursViewed = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_HOURS))
+      const views = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_VIEWS))
+      const weeksInTop10 = Number(findColumnValue(raw, COLUMN_MAPPINGS.CUMULATIVE_WEEKS))
+      const weeklyRank = Number(findColumnValue(raw, COLUMN_MAPPINGS.RANK))
+      if (!weekStr || !title || !categoryStr || isNaN(hoursViewed) || isNaN(views) || isNaN(weeksInTop10)) continue
+      const { weekStart, weekEnd } = parseWeekToDateRange(weekStr)
+      if (!weekStart || !weekEnd) continue
+      const category: Category = String(categoryStr).toLowerCase().includes("tv") ? "TV" : "Films"
+      const languageType: LanguageType = String(categoryStr).toLowerCase().includes("non") ? "Non-English" : "English"
+      out.push({ weekStart, weekEnd, title: String(title), category, languageType, hoursViewed, views, weeksInTop10, countryCode, weeklyRank: isNaN(weeklyRank) ? undefined : weeklyRank })
+    } catch {}
+  }
+  return out
+}
+
+export function parseMostPopularFromRows(rows: any[]): {
+  tvEnglish: PopularRow[]
+  tvNonEnglish: PopularRow[]
+  filmsEnglish: PopularRow[]
+  filmsNonEnglish: PopularRow[]
+} {
+  const result = { tvEnglish: [] as PopularRow[], tvNonEnglish: [] as PopularRow[], filmsEnglish: [] as PopularRow[], filmsNonEnglish: [] as PopularRow[] }
+  for (const raw of rows) {
+    try {
+      const title = pickTitleWithFallback(raw)
+      const hours91d = Number(findColumnValue(raw, COLUMN_MAPPINGS.HOURS_91D))
+      const views91d = Number(findColumnValue(raw, COLUMN_MAPPINGS.VIEWS_91D))
+      const rank = Number(findColumnValue(raw, COLUMN_MAPPINGS.RANK))
+      const catStr = String(findColumnValue(raw, COLUMN_MAPPINGS.CATEGORY) || "")
+      if (!title || isNaN(hours91d) || isNaN(views91d) || !catStr) continue
+      const lower = catStr.toLowerCase()
+      const category: Category = lower.includes("tv") ? "TV" : "Films"
+      const languageType: LanguageType = lower.includes("non") ? "Non-English" : "English"
+      const row: PopularRow = { title: String(title), category, languageType, hours91d, views91d, rank: isNaN(rank) ? undefined : rank }
+      if (row.category === "TV" && row.languageType === "English") result.tvEnglish.push(row)
+      else if (row.category === "TV" && row.languageType === "Non-English") result.tvNonEnglish.push(row)
+      else if (row.category === "Films" && row.languageType === "English") result.filmsEnglish.push(row)
+      else result.filmsNonEnglish.push(row)
+    } catch {}
+  }
+  return result
+}
+
+function pickTitleWithFallback(row: any): string | undefined {
+  const season = findColumnValue(row, COLUMN_MAPPINGS.SEASON_TITLE)
+  const show = findColumnValue(row, COLUMN_MAPPINGS.SHOW_TITLE)
+  const s = typeof season === "string" ? season.trim() : season
+  const isNA = (v: any) => typeof v === "string" && v.trim().toUpperCase() === "N/A"
+  if (s && !isNA(s)) return String(s)
+  if (show) return String(show)
+  // final fallback to generic TITLE mapping
+  const t = findColumnValue(row, COLUMN_MAPPINGS.TITLE)
+  return t ? String(t) : undefined
 }
 
 /**
@@ -163,7 +300,7 @@ export function parseWeeklyGlobal(workbook: XLSX.WorkBook): {
     for (const raw of rawData) {
       try {
         const weekStr = findColumnValue(raw, COLUMN_MAPPINGS.WEEK)
-        const title = findColumnValue(raw, COLUMN_MAPPINGS.TITLE)
+        const title = pickTitleWithFallback(raw)
         const hoursViewed = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_HOURS))
         const views = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_VIEWS))
         const weeksInTop10 = Number(findColumnValue(raw, COLUMN_MAPPINGS.CUMULATIVE_WEEKS))
@@ -260,13 +397,14 @@ export function parseCountryData(workbook: XLSX.WorkBook, countryCode: string): 
   for (const raw of rawData) {
     try {
       const weekStr = findColumnValue(raw, COLUMN_MAPPINGS.WEEK)
-      const title = findColumnValue(raw, COLUMN_MAPPINGS.TITLE)
+      const title = pickTitleWithFallback(raw)
       const categoryStr = findColumnValue(raw, COLUMN_MAPPINGS.CATEGORY)
-      const hoursViewed = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_HOURS))
-      const views = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_VIEWS))
-      const weeksInTop10 = Number(findColumnValue(raw, COLUMN_MAPPINGS.CUMULATIVE_WEEKS))
+      const hoursViewedRaw = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_HOURS))
+      const viewsRaw = Number(findColumnValue(raw, COLUMN_MAPPINGS.WEEKLY_VIEWS))
+      const weeksInTop10Raw = Number(findColumnValue(raw, COLUMN_MAPPINGS.CUMULATIVE_WEEKS))
+      const weeklyRank = Number(findColumnValue(raw, COLUMN_MAPPINGS.RANK))
 
-      if (!weekStr || !title || !categoryStr || isNaN(hoursViewed) || isNaN(views) || isNaN(weeksInTop10)) {
+      if (!weekStr || !title || !categoryStr) {
         continue
       }
 
@@ -283,10 +421,11 @@ export function parseCountryData(workbook: XLSX.WorkBook, countryCode: string): 
         title: String(title),
         category,
         languageType,
-        hoursViewed,
-        views,
-        weeksInTop10,
+        hoursViewed: isNaN(hoursViewedRaw) ? 0 : hoursViewedRaw,
+        views: isNaN(viewsRaw) ? 0 : viewsRaw,
+        weeksInTop10: isNaN(weeksInTop10Raw) ? 0 : weeksInTop10Raw,
         countryCode,
+        weeklyRank: isNaN(weeklyRank) ? undefined : weeklyRank,
       }
 
       const validated = weeklyRowSchema.parse(parsed)
@@ -321,9 +460,10 @@ export function parseMostPopular(workbook: XLSX.WorkBook): {
 
     for (const raw of rawData) {
       try {
-        const title = findColumnValue(raw, COLUMN_MAPPINGS.TITLE)
+        const title = pickTitleWithFallback(raw)
         const hours91d = Number(findColumnValue(raw, COLUMN_MAPPINGS.HOURS_91D))
         const views91d = Number(findColumnValue(raw, COLUMN_MAPPINGS.VIEWS_91D))
+        const rank = Number(findColumnValue(raw, COLUMN_MAPPINGS.RANK))
 
         if (!title || isNaN(hours91d) || isNaN(views91d)) {
           continue
@@ -351,6 +491,7 @@ export function parseMostPopular(workbook: XLSX.WorkBook): {
           languageType: categoryLang.languageType,
           hours91d,
           views91d,
+          rank: isNaN(rank) ? undefined : rank,
         }
 
         const validated = popularRowSchema.parse(parsed)

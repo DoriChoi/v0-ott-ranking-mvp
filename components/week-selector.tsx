@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 function formatDate(d: Date) {
@@ -35,6 +35,14 @@ export function WeekSelector({ value, onChange, count = 4 }: { value?: string; o
     }
     return arr
   }, [count])
+
+  // Auto-select the latest week if no value is provided
+  useEffect(() => {
+    if (!value && options.length > 0) {
+      onChange(options[0].value)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options])
 
   return (
     <Select value={value} onValueChange={onChange}>

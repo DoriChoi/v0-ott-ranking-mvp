@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import useSWR from "swr"
 import type { ViewMode, WeeklyAPIResponse, CountryAPIResponse, MostPopularAPIResponse } from "@/lib/types"
 import { ViewTabs } from "@/components/view-tabs"
 import { RankCard } from "@/components/rank-card"
 import { CountrySelector } from "@/components/country-selector"
 import { WeekSelector } from "@/components/week-selector"
+import { DaySelector } from "@/components/day-selector"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ErrorState } from "@/components/error-state"
@@ -32,7 +33,10 @@ const fetcher = async (url: string) => {
 export default function HomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("integrated")
   const [selectedCountry, setSelectedCountry] = useState("KR")
+  // Global/category weekly selector (latest weeks)
   const [selectedWeek, setSelectedWeek] = useState<string | undefined>(undefined)
+  // Country view uses fixed specific days; default to 2025-09-28
+  const [selectedCountryDay, setSelectedCountryDay] = useState<string>("2025-09-28")
 
   const {
     data: weeklyData,
@@ -47,13 +51,23 @@ export default function HomePage() {
     },
   )
 
+  // Keep WeekSelector in sync with server-selected week so header and selector match
+  useEffect(() => {
+    if (weeklyData?.weekStart) {
+      // If no selection yet or selection differs from server's chosen week, sync it
+      if (!selectedWeek || selectedWeek !== weeklyData.weekStart) {
+        setSelectedWeek(weeklyData.weekStart)
+      }
+    }
+  }, [weeklyData?.weekStart])
+
   const {
     data: countryData,
     error: countryError,
     mutate: mutateCountry,
   } = useSWR<CountryAPIResponse>(
     viewMode === "country"
-      ? `/api/netflix/country/${selectedCountry}${selectedWeek ? `?week=${encodeURIComponent(selectedWeek)}` : ""}`
+      ? `/api/netflix/country/${selectedCountry}${selectedCountryDay ? `?week=${encodeURIComponent(selectedCountryDay)}` : ""}`
       : null,
     fetcher,
     {
@@ -197,11 +211,11 @@ export default function HomePage() {
               <div>
                 <h2 className="text-xl font-semibold mb-1">국가별 주간 Top10</h2>
                 <p className="text-sm text-muted-foreground">
-                  {countryData?.weekStart && `${countryData.weekStart} ~ ${countryData.weekEnd}`}
+                  {countryData?.weekStart && `${countryData.weekStart}`}
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <WeekSelector value={selectedWeek} onChange={setSelectedWeek} />
+                <DaySelector value={selectedCountryDay} onChange={setSelectedCountryDay} />
                 <CountrySelector value={selectedCountry} onChange={setSelectedCountry} />
               </div>
             </div>

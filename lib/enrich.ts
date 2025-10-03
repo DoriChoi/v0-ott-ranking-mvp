@@ -4,6 +4,56 @@ import { getLocalPoster } from "./poster-map"
 const TMDB_BASE = "https://api.themoviedb.org/3"
 const TMDB_IMAGE_BASE = "/api/image?size=w342&path="
 
+// Simple in-memory TTL cache for TMDB search results
+type CacheEntry = { at: number; value: any }
+const CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+;(global as any).__v0_tmdb_cache = (global as any).__v0_tmdb_cache || new Map<string, CacheEntry>()
+const TMDB_CACHE: Map<string, CacheEntry> = (global as any).__v0_tmdb_cache
+
+// Very light concurrency limiter (no external deps)
+const MAX_CONCURRENT = 5
+;(global as any).__v0_tmdb_inflight = (global as any).__v0_tmdb_inflight || { count: 0, q: [] as Array<() => void> }
+const inflight: { count: number; q: Array<() => void> } = (global as any).__v0_tmdb_inflight
+function acquire(): Promise<void> {
+  return new Promise((resolve) => {
+    if (inflight.count < MAX_CONCURRENT) {
+      inflight.count++
+      resolve()
+    } else {
+      inflight.q.push(() => {
+        inflight.count++
+        resolve()
+      })
+    }
+  })
+}
+function release() {
+  inflight.count = Math.max(0, inflight.count - 1)
+  const next = inflight.q.shift()
+  if (next) next()
+}
+
+// Rate-limited miss logging
+;(global as any).__v0_tmdb_miss = (global as any).__v0_tmdb_miss || { last: 0, n: 0 }
+;(global as any).__v0_tmdb_miss_map = (global as any).__v0_tmdb_miss_map || new Map<string, { count: number; lastAt: number }>()
+const missState: { last: number; n: number } = (global as any).__v0_tmdb_miss
+const missMap: Map<string, { count: number; lastAt: number }> = (global as any).__v0_tmdb_miss_map
+function logMiss(title: string) {
+  const now = Date.now()
+  if (now - missState.last > 1000) {
+    missState.last = now
+    missState.n = 0
+  }
+  if (missState.n < 5) {
+    console.warn("[v0] TMDB poster miss:", title)
+    missState.n++
+  }
+  const rec = missMap.get(title) || { count: 0, lastAt: 0 }
+  rec.count += 1
+  rec.lastAt = now
+  missMap.set(title, rec)
+}
+
 function normalizeToken(raw?: string | null): string | undefined {
   if (!raw) return undefined
   const trimmed = raw.trim().replace(/^"|"$/g, "").replace(/^'|'$/g, "")
@@ -31,7 +81,19 @@ function normalizeQuery(title: string): string {
   return t
 }
 
-async function doSearchOnce(query: string, language: string) {
+function variantQueries(title: string): string[] {
+  const base = normalizeQuery(title)
+  const variants = new Set<string>([title, base])
+  // Replace ampersand with 'and'
+  variants.add(base.replace(/\s*&\s*/g, " and "))
+  // Remove punctuation
+  variants.add(base.replace(/[!?:;,.]/g, " ").replace(/\s{2,}/g, " ").trim())
+  // Shorten long subtitles after dash/colon
+  variants.add(base.replace(/[\-:].*$/, "").trim())
+  return Array.from(variants).filter(Boolean)
+}
+
+async function doSearchOnce(query: string, language: string, endpoint: "multi" | "movie" | "tv") {
   const v4 = normalizeToken(process.env.TMDB_API_KEY)
   const v3 = normalizeToken(process.env.TMDB_API_KEY_V3)
   if (!v4 && !v3) {
@@ -39,9 +101,16 @@ async function doSearchOnce(query: string, language: string) {
     return null
   }
 
+  const cacheKey = `${endpoint}|${language}|${query}`
+  const hit = TMDB_CACHE.get(cacheKey)
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return hit.value
+  }
+
   // Prefer v4 Bearer; fallback to v3 api_key
-  const baseUrl = `${TMDB_BASE}/search/multi?query=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}&include_adult=false`
+  const baseUrl = `${TMDB_BASE}/search/${endpoint}?query=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}&include_adult=false`
   const url = v3 ? `${baseUrl}&api_key=${encodeURIComponent(v3)}` : baseUrl
+  await acquire()
   try {
     // First attempt: prefer v4 Bearer
     const res = await fetch(url, {
@@ -54,6 +123,24 @@ async function doSearchOnce(query: string, language: string) {
       cache: "no-store",
     } as any)
     if (!res.ok) {
+      // Retry once for rate limit/server errors
+      if (res.status === 429 || res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 300))
+        const resRetry = await fetch(url, {
+          headers: v4
+            ? { Authorization: `Bearer ${v4}`, Accept: "application/json" }
+            : { Accept: "application/json" },
+          cache: "no-store",
+        } as any)
+        if (resRetry.ok) {
+          const dataR = await resRetry.json()
+          const resultR = (dataR?.results || [])[0]
+          if (resultR) {
+            TMDB_CACHE.set(cacheKey, { at: Date.now(), value: resultR })
+            return resultR
+          }
+        }
+      }
       const text = await res.text().catch(() => "")
       console.warn(
         "[v0] TMDB search failed",
@@ -65,7 +152,7 @@ async function doSearchOnce(query: string, language: string) {
       )
       // If v4 failed with 401 and we have v3, retry once using v3 only (no Authorization header)
       if (res.status === 401 && v3) {
-        const retryUrl = `${TMDB_BASE}/search/multi?query=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}&include_adult=false&api_key=${encodeURIComponent(v3)}`
+        const retryUrl = `${TMDB_BASE}/search/${endpoint}?query=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}&include_adult=false&api_key=${encodeURIComponent(v3)}`
         const res2 = await fetch(retryUrl, { headers: { Accept: "application/json" }, cache: "no-store" } as any)
         if (!res2.ok) {
           const text2 = await res2.text().catch(() => "")
@@ -75,6 +162,7 @@ async function doSearchOnce(query: string, language: string) {
         const data2 = await res2.json()
         const result2 = (data2?.results || [])[0]
         if (!result2) return null
+        TMDB_CACHE.set(cacheKey, { at: Date.now(), value: result2 })
         return result2
       }
       return null
@@ -82,25 +170,33 @@ async function doSearchOnce(query: string, language: string) {
     const data = await res.json()
     const result = (data?.results || [])[0]
     if (!result) return null
+    TMDB_CACHE.set(cacheKey, { at: Date.now(), value: result })
     return result
   } catch (e) {
     console.warn("[v0] TMDB fetch error", e)
     return null
+  } finally {
+    release()
   }
 }
 
-async function searchTMDB(title: string) {
-  const attempts: Array<{ q: string; lang: string }> = []
-  const norm = normalizeQuery(title)
-  if (norm) attempts.push({ q: norm, lang: "ko-KR" })
-  attempts.push({ q: title, lang: "ko-KR" })
-  attempts.push({ q: norm || title, lang: "en-US" })
+async function searchTMDB(title: string, hint?: { category?: string }) {
+  const langs = ["ko-KR", "en-US"]
+  const queries = variantQueries(title)
+  const endpoints: ("movie" | "tv" | "multi")[] = []
+  if (hint?.category === "Films") endpoints.push("movie", "multi")
+  else if (hint?.category === "TV") endpoints.push("tv", "multi")
+  else endpoints.push("multi")
 
-  for (const a of attempts) {
-    try {
-      const result = await doSearchOnce(a.q, a.lang)
-      if (result) return result
-    } catch {}
+  for (const endpoint of endpoints) {
+    for (const lang of langs) {
+      for (const q of queries) {
+        try {
+          const result = await doSearchOnce(q, lang, endpoint)
+          if (result) return result
+        } catch {}
+      }
+    }
   }
   return null
 }
@@ -111,7 +207,7 @@ export async function enrichNetflixItems(items: NetflixItem[], limit = 40): Prom
     const item = items[i]
     if (i < limit) {
       try {
-        const result = await searchTMDB(item.title)
+        const result = await searchTMDB(item.title, { category: item.category })
         if (result) {
           const posterUrl = result.poster_path
             ? `${TMDB_IMAGE_BASE}${encodeURIComponent(result.poster_path)}`
@@ -127,6 +223,7 @@ export async function enrichNetflixItems(items: NetflixItem[], limit = 40): Prom
         }
       } catch {}
     }
+    logMiss(item.title)
     enriched.push({ ...item, poster: item.poster || getLocalPoster(item.title) })
   }
   return enriched
@@ -138,7 +235,7 @@ export async function enrichPopularRows(rows: PopularRow[], limit = 40): Promise
     const row = rows[i]
     if (i < limit) {
       try {
-        const result = await searchTMDB(row.title)
+        const result = await searchTMDB(row.title, { category: row.category })
         if (result) {
           const posterUrl = result.poster_path
             ? `${TMDB_IMAGE_BASE}${encodeURIComponent(result.poster_path)}`
@@ -154,6 +251,7 @@ export async function enrichPopularRows(rows: PopularRow[], limit = 40): Promise
         }
       } catch {}
     }
+    logMiss(row.title)
     out.push({ ...row, poster: getLocalPoster(row.title) })
   }
   return out

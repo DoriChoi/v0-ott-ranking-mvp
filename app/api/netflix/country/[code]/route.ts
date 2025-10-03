@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
 import type { CountryAPIResponse, WeeklyRow } from "@/lib/types"
 import { CACHE_TIMES, SUPPORTED_COUNTRIES, NETFLIX_URLS } from "@/lib/constants"
-import { fetchAndParseExcel, parseCountryData } from "@/lib/parse-excel"
-import { convertToNetflixItems } from "@/lib/ranking"
+import { fetchAndParseExcel, parseCountryData, tryLoadJsonRows, parseCountryFromRows } from "@/lib/parse-excel"
+import { convertToNetflixItemsFromCountry } from "@/lib/ranking"
 import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
-export const dynamic = "force-dynamic"
 
 /**
  * GET /api/netflix/country/[code]
@@ -29,20 +28,28 @@ export async function GET(request: Request, { params }: { params: { code: string
       )
     }
 
-    // Fetch and parse country workbook from public
-    const workbook = await fetchAndParseExcel(NETFLIX_URLS.COUNTRY)
-    const allCountryRows = parseCountryData(workbook, countryCode)
+    // Load from JSON first (public/netflix_country.json); fallback to XLSX
+    const jsonRows = tryLoadJsonRows(NETFLIX_URLS.COUNTRY)
+    let allCountryRows: WeeklyRow[]
+    if (jsonRows && jsonRows.length > 0) {
+      allCountryRows = parseCountryFromRows(jsonRows, countryCode)
+    } else {
+      const workbook = await fetchAndParseExcel(NETFLIX_URLS.COUNTRY)
+      allCountryRows = parseCountryData(workbook, countryCode)
+    }
 
-    // Filter to 2025 only
-    const only2025 = allCountryRows.filter((r) => r.weekStart.startsWith("2025-"))
-
-    // Determine requested week
+    // Determine requested date (latest if not provided)
     const url = new URL(request.url)
     const weekParam = url.searchParams.get("week") || undefined
-    const weeksSet = new Set<string>(only2025.map((r) => r.weekStart))
-    const availableWeeks = Array.from(weeksSet).sort()
-    const latestWeekStart = availableWeeks[availableWeeks.length - 1]
-    const weekStart = weekParam && weeksSet.has(weekParam) ? weekParam : latestWeekStart
+    // Build available set from both weekStart and weekEnd to be robust for daily sources
+    const candidateDates = new Set<string>()
+    for (const r of allCountryRows) {
+      if (r.weekStart) candidateDates.add(r.weekStart)
+      if (r.weekEnd) candidateDates.add(r.weekEnd)
+    }
+    const available = Array.from(candidateDates).sort()
+    const latestDate = available[available.length - 1]
+    const weekStart = weekParam && candidateDates.has(weekParam) ? weekParam : latestDate
     const weekEnd = (() => {
       if (!weekStart) return ""
       const d = new Date(weekStart)
@@ -51,11 +58,26 @@ export async function GET(request: Request, { params }: { params: { code: string
       return e.toISOString().slice(0, 10)
     })()
 
-    // Slice to selected week and enrich Top10
-    const rowsForWeek: WeeklyRow[] = weekStart
-      ? only2025.filter((r) => r.weekStart === weekStart)
+    // Slice to selected day and enrich Top10 (match start/end/within range)
+    let rowsForWeek: WeeklyRow[] = weekStart
+      ? allCountryRows.filter(
+          (r) =>
+            r.weekStart === weekStart ||
+            r.weekEnd === weekStart ||
+            (r.weekStart && r.weekEnd && r.weekStart <= weekStart && weekStart <= r.weekEnd),
+        )
       : []
-    const items = await enrichNetflixItems(convertToNetflixItems(rowsForWeek, 10), 20)
+    // Fallback: if nothing matched the requested day, use latest available date
+    if ((!rowsForWeek || rowsForWeek.length === 0) && available.length > 0) {
+      const fallbackDate = available[available.length - 1]
+      rowsForWeek = allCountryRows.filter(
+        (r) =>
+          r.weekStart === fallbackDate ||
+          r.weekEnd === fallbackDate ||
+          (r.weekStart && r.weekEnd && r.weekStart <= fallbackDate && fallbackDate <= r.weekEnd),
+      )
+    }
+    const items = await enrichNetflixItems(convertToNetflixItemsFromCountry(rowsForWeek, 10), 20)
 
     const response: CountryAPIResponse = {
       countryCode,

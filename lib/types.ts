@@ -62,6 +62,7 @@ export interface WeeklyRow {
   views: number // weekly views
   weeksInTop10: number
   countryCode?: string // only for country-specific data
+  weeklyRank?: number // from source when available (e.g., country sheets)
 }
 
 // Raw popular row structure (91-day cumulative)
@@ -82,6 +83,7 @@ export interface PopularRow {
   languageType: LanguageType
   views91d: number
   hours91d: number
+  rank?: number
 }
 
 // API response types

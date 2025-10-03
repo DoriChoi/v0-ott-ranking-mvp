@@ -37,11 +37,25 @@ export const CACHE_TIMES = {
 export const COLUMN_MAPPINGS = {
   WEEK: ["week", "week_start", "weekstart"],
   TITLE: ["show_title", "title", "season_title"],
+  SEASON_TITLE: ["season_title", "season title"],
+  SHOW_TITLE: ["show_title", "show title", "title"],
   CATEGORY: ["category"],
   WEEKLY_HOURS: ["weekly_hours_viewed", "hours_viewed", "hours"],
   WEEKLY_VIEWS: ["weekly_views", "views"],
   CUMULATIVE_WEEKS: ["cumulative_weeks_in_top_10", "weeks_in_top_10", "weeks"],
   RANK: ["weekly_rank", "rank"],
-  HOURS_91D: ["hours_viewed_91d", "hours_91d"],
-  VIEWS_91D: ["views_91d"],
+  // Support multiple header variants seen across files
+  HOURS_91D: [
+    "hours_viewed_91d",
+    "hours_91d",
+    "hours_viewed_first_91_days",
+    "hours_first_91_days",
+    "hours_viewed_first_91_",
+    "hours_first_91_",
+  ],
+  VIEWS_91D: [
+    "views_91d",
+    "views_first_91_days",
+    "views_first_91_",
+  ],
 } as const

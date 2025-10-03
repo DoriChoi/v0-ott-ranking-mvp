@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
 import type { WeeklyAPIResponse, WeeklyRow } from "@/lib/types"
 import { CACHE_TIMES, NETFLIX_URLS } from "@/lib/constants"
-import { fetchAndParseExcel, parseWeeklyGlobal } from "@/lib/parse-excel"
+import { fetchAndParseExcel, parseWeeklyGlobal, tryLoadJsonRows, parseWeeklyGlobalFromRows } from "@/lib/parse-excel"
 import { calculateUnifiedTop100, convertToNetflixItems } from "@/lib/ranking"
 import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
-export const dynamic = "force-dynamic"
 
 /**
  * GET /api/netflix/weekly
@@ -14,9 +13,15 @@ export const dynamic = "force-dynamic"
  */
 export async function GET(request: Request) {
   try {
-    // 1) Fetch and parse Netflix weekly global Excel (from public)
-    const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
-    const parsed = parseWeeklyGlobal(workbook)
+    // 1) Load from JSON first (public/netflix_global.json); fallback to XLSX
+    const jsonRows = tryLoadJsonRows(NETFLIX_URLS.WEEKLY_GLOBAL)
+    let parsed
+    if (jsonRows && jsonRows.length > 0) {
+      parsed = parseWeeklyGlobalFromRows(jsonRows)
+    } else {
+      const workbook = await fetchAndParseExcel(NETFLIX_URLS.WEEKLY_GLOBAL)
+      parsed = parseWeeklyGlobal(workbook)
+    }
 
     // 2) Base data for menus: prefer 2025 if exists; else fallback to all
     const only2025 = {
@@ -138,7 +143,7 @@ export async function GET(request: Request) {
       filmsNonEnglish: parsed.filmsNonEnglish.filter((r) => (cutoff ? r.weekStart >= cutoff.toISOString().slice(0, 10) : true)),
     }
     const unifiedTop100Raw = calculateUnifiedTop100(last90ByQuadrant)
-    const unifiedTop100 = await enrichNetflixItems(unifiedTop100Raw, 60)
+    const unifiedTop100 = await enrichNetflixItems(unifiedTop100Raw, 40)
     const categoryItems = {
       tvEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvEnglish, 10), 20),
       tvNonEnglish: await enrichNetflixItems(convertToNetflixItems(globalByQuadrant.tvNonEnglish, 10), 20),

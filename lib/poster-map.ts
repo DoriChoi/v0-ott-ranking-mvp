@@ -1,4 +1,4 @@
-// Simple keyword-based local poster resolver for sample titles
+// Simple keyword-based local poster resolver for sample titles (client-safe)
 // Returns a path under /public or undefined
 export function getLocalPoster(title: string): string | undefined {
   const t = title.toLowerCase()

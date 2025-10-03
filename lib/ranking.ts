@@ -104,6 +104,31 @@ export function convertToNetflixItems(rows: WeeklyRow[], limit = 10): NetflixIte
 }
 
 /**
+ * Convert WeeklyRow array (country view) using source weeklyRank when available.
+ */
+export function convertToNetflixItemsFromCountry(rows: WeeklyRow[], limit = 10): NetflixItem[] {
+  const hasWeeklyRank = rows.some((r) => typeof r.weeklyRank === "number" && !isNaN(r.weeklyRank as number))
+  const sorted = hasWeeklyRank
+    ? [...rows].sort((a, b) => (a.weeklyRank ?? 9999) - (b.weeklyRank ?? 9999))
+    : [...rows].sort((a, b) => b.views - a.views)
+
+  return sorted.slice(0, limit).map((row, index) => ({
+    rank: row.weeklyRank ?? index + 1,
+    title: row.title,
+    category: row.category,
+    language: row.languageType,
+    weeklyViews: row.views,
+    weeklyHours: row.hoursViewed,
+    weeksInTop10: row.weeksInTop10,
+    weekStart: row.weekStart,
+    weekEnd: row.weekEnd,
+    country: row.countryCode,
+    poster: generatePosterUrl(row.title),
+    changeFromLastWeek: 0,
+  }))
+}
+
+/**
  * Get latest week from data
  */
 export function getLatestWeek(rows: WeeklyRow[]): { weekStart: string; weekEnd: string } | null {

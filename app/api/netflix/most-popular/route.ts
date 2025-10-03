@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { MostPopularAPIResponse } from "@/lib/types"
 import { CACHE_TIMES, NETFLIX_URLS } from "@/lib/constants"
-import { fetchAndParseExcel, parseMostPopular } from "@/lib/parse-excel"
+import { fetchAndParseExcel, parseMostPopular, tryLoadJsonRows, parseMostPopularFromRows } from "@/lib/parse-excel"
 import { enrichPopularRows } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.MOST_POPULAR // 7 days
@@ -14,9 +14,15 @@ export async function GET(request: Request) {
   try {
     console.log("[v0] Fetching Netflix most popular data...")
 
-    // Fetch and parse real Excel
-    const workbook = await fetchAndParseExcel(NETFLIX_URLS.MOST_POPULAR)
-    const parsed = parseMostPopular(workbook)
+    // Load from JSON first (public/netflix_mostpopular.json); fallback to XLSX
+    const jsonRows = tryLoadJsonRows(NETFLIX_URLS.MOST_POPULAR)
+    let parsed
+    if (jsonRows && jsonRows.length > 0) {
+      parsed = parseMostPopularFromRows(jsonRows)
+    } else {
+      const workbook = await fetchAndParseExcel(NETFLIX_URLS.MOST_POPULAR)
+      parsed = parseMostPopular(workbook)
+    }
 
     // Enrich posters/localized titles
     const popularData = {
