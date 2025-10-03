@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+export const runtime = "nodejs"
 
 export const revalidate = 604800 // 7 days
 

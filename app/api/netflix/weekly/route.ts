@@ -6,6 +6,7 @@ import { calculateUnifiedTop100, convertToNetflixItems } from "@/lib/ranking"
 import { enrichNetflixItems } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.WEEKLY // 24 hours
+export const runtime = "nodejs"
 
 /**
  * GET /api/netflix/weekly

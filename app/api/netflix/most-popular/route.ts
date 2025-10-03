@@ -5,6 +5,7 @@ import { fetchAndParseExcel, parseMostPopular, tryLoadJsonRows, parseMostPopular
 import { enrichPopularRows } from "@/lib/enrich"
 
 export const revalidate = CACHE_TIMES.MOST_POPULAR // 7 days
+export const runtime = "nodejs"
 
 /**
  * GET /api/netflix/most-popular
