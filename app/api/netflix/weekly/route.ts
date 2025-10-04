@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const requestedWeek = searchParams.get("week")
 
-    const excelResponse = await fetch(new URL("/netflix_global.xlsx", request.url).href)
+    const excelResponse = await fetch(
+      "https://github.com/DoriChoi/v0-ott-ranking-mvp/raw/96929558368b8648a2d6cee81c3b32833e809057/public/netflix_global.xlsx",
+    )
     if (!excelResponse.ok) {
       throw new Error("Failed to fetch Excel file")
     }

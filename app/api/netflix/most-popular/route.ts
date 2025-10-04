@@ -28,7 +28,9 @@ function parsePopularRow(row: any): PopularRow | null {
 
 export async function GET(request: NextRequest) {
   try {
-    const response = await fetch(new URL("/netflix_mostpopular.xlsx", request.url).href)
+    const response = await fetch(
+      "https://github.com/DoriChoi/v0-ott-ranking-mvp/raw/96929558368b8648a2d6cee81c3b32833e809057/public/netflix_mostpopular.xlsx",
+    )
     if (!response.ok) {
       throw new Error("Failed to fetch Excel file")
     }
